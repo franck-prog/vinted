@@ -7,7 +7,7 @@ Elle tourne entièrement dans le navigateur, sans compte, sans serveur et sans d
 
 - **Le plus simple** : ouvrir `index.html` dans un navigateur (double-clic).
 - **Avec un petit serveur local** : `npm start`, puis ouvrir <http://localhost:8080>.
-- **En ligne** : activer GitHub Pages sur ce dépôt (Settings → Pages → branche `main`, dossier `/`). L'application est alors accessible depuis le téléphone.
+- **En ligne** : activer GitHub Pages sur ce dépôt (Settings → Pages → *Deploy from a branch*, branche du code, dossier `/`). L'application est alors accessible depuis le téléphone.
 
 ## Installer comme application de bureau
 
