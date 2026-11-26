@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Suivi Vinted</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231b64be'/%3E%3Cpath d='M9 19l4-4 3 3 7-8' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8"/><path d="M9 19l4-4 3 3 7-8"/></svg>
+        </span>
+        <span class="brand-name">Suivi Vinted</span>
+      </div>
+      <nav class="tabs" aria-label="Sections">
+        <button type="button" class="tab" data-view="dashboard"><span class="lbl-long">Tableau de bord</span><span class="lbl-short">Bilan</span></button>
+        <button type="button" class="tab" data-view="articles">Articles</button>
+        <button type="button" class="tab" data-view="depenses">Dépenses</button>
+        <button type="button" class="tab" data-view="donnees">Données</button>
+      </nav>
+      <button type="button" class="icon-btn" id="theme-toggle" title="Thème">
+        <span aria-hidden="true" id="theme-icon"></span>
+        <span class="sr-only" id="theme-label">Thème automatique</span>
+      </button>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- ===================== TABLEAU DE BORD ===================== -->
+    <section class="view" id="view-dashboard" aria-labelledby="h-dashboard">
+      <div class="view-head">
+        <h1 id="h-dashboard">Tableau de bord</h1>
+        <div class="filters">
+          <label class="field-inline">
+            <span>Période</span>
+            <select id="period-select"></select>
+          </label>
+          <button type="button" class="btn btn-primary" data-action="new-article">+ Article</button>
+        </div>
+      </div>
+
+      <div id="dashboard-empty" class="empty-card" hidden>
+        <h2>Bienvenue 👋</h2>
+        <p>Ajoutez vos articles au fur et à mesure : achat, mise en ligne, vente, expédition. L'application calcule automatiquement votre chiffre d'affaires, votre bénéfice et vos délais de vente.</p>
+        <div class="row-gap">
+          <button type="button" class="btn btn-primary" data-action="new-article">Ajouter mon premier article</button>
+          <button type="button" class="btn" data-action="demo">Essayer avec des exemples</button>
+        </div>
+      </div>
+
+      <div id="dashboard-content">
+        <div class="kpi-layout">
+          <div class="card hero">
+            <div class="hero-label">Bénéfice net</div>
+            <div class="hero-value" id="hero-value">—</div>
+            <div class="hero-sub" id="hero-sub"></div>
+          </div>
+          <div class="tiles" id="tiles"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h2>Chiffre d'affaires et bénéfice par mois</h2>
+              <p class="card-sub" id="chart-sub"></p>
+            </div>
+            <div class="legend" aria-hidden="true">
+              <span class="legend-item"><span class="swatch s1"></span>Chiffre d'affaires</span>
+              <span class="legend-item"><span class="swatch s2"></span>Bénéfice net</span>
+            </div>
+          </div>
+          <div class="chart" id="monthly-chart" role="img" aria-label="Graphique mensuel du chiffre d'affaires et du bénéfice"></div>
+          <details class="table-view">
+            <summary>Afficher les données du graphique</summary>
+            <div class="table-scroll"><table class="data-table compact" id="monthly-table"></table></div>
+          </details>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head">
+              <div>
+                <h2>Bénéfice par catégorie</h2>
+                <p class="card-sub">Avant dépenses générales</p>
+              </div>
+            </div>
+            <div id="category-chart" class="cat-chart"></div>
+          </div>
+          <div class="card" id="dac7-card">
+            <div class="card-head">
+              <div>
+                <h2>Seuils de déclaration DAC7</h2>
+                <p class="card-sub" id="dac7-sub"></p>
+              </div>
+            </div>
+            <div id="dac7-meters"></div>
+            <p class="note">Au-delà de <strong>30 ventes</strong> ou <strong>2 000 €</strong> encaissés sur une année civile, Vinted transmet vos informations de vente à l'administration fiscale (directive européenne DAC7). Cela ne rend pas vos ventes imposables pour autant : la revente occasionnelle de vos affaires personnelles ne l'est en principe pas, contrairement à une activité d'achat-revente.</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>Dernières ventes</h2>
+            <button type="button" class="btn btn-ghost" data-goto="articles" data-filter="vendus">Tout voir</button>
+          </div>
+          <div id="recent-sales"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== ARTICLES ===================== -->
+    <section class="view" id="view-articles" aria-labelledby="h-articles" hidden>
+      <div class="view-head">
+        <h1 id="h-articles">Articles</h1>
+        <div class="filters">
+          <button type="button" class="btn btn-primary" data-action="new-article">+ Article</button>
+        </div>
+      </div>
+      <div class="toolbar">
+        <input type="search" id="search" placeholder="Rechercher (titre, marque, notes…)" aria-label="Rechercher un article">
+        <select id="filter-status" aria-label="Filtrer par statut"></select>
+        <select id="filter-category" aria-label="Filtrer par catégorie"></select>
+        <select id="sort" aria-label="Trier">
+          <option value="recent">Plus récents</option>
+          <option value="benefice">Bénéfice décroissant</option>
+          <option value="anciennete">Plus anciens en stock</option>
+          <option value="titre">Titre (A → Z)</option>
+        </select>
+      </div>
+      <div class="status-chips" id="status-chips"></div>
+      <div class="card flush">
+        <div id="articles-list"></div>
+      </div>
+      <p class="list-summary" id="articles-summary"></p>
+    </section>
+
+    <!-- ===================== DÉPENSES ===================== -->
+    <section class="view" id="view-depenses" aria-labelledby="h-depenses" hidden>
+      <div class="view-head">
+        <h1 id="h-depenses">Dépenses générales</h1>
+        <div class="filters">
+          <label class="field-inline">
+            <span>Période</span>
+            <select id="dep-period-select"></select>
+          </label>
+          <button type="button" class="btn btn-primary" data-action="new-depense">+ Dépense</button>
+        </div>
+      </div>
+      <p class="intro">Les frais qui ne concernent pas un article précis : emballages, mise en avant du dressing, étiquettes, déplacements… Ils sont déduits du bénéfice net. Les frais propres à un article (un boost par exemple) se saisissent directement dans l'article.</p>
+      <div class="card flush">
+        <div id="depenses-list"></div>
+      </div>
+      <p class="list-summary" id="depenses-summary"></p>
+    </section>
+
+    <!-- ===================== DONNÉES ===================== -->
+    <section class="view" id="view-donnees" aria-labelledby="h-donnees" hidden>
+      <div class="view-head">
+        <h1 id="h-donnees">Données</h1>
+      </div>
+      <p class="intro">Vos données restent dans ce navigateur, sur cet appareil. Pensez à faire une sauvegarde régulièrement, et pour passer d'un appareil à l'autre, exportez puis importez le fichier de sauvegarde.</p>
+      <div class="grid-2">
+        <div class="card">
+          <h2>Sauvegarder</h2>
+          <p class="card-sub">Fichier complet (articles et dépenses) à réimporter plus tard.</p>
+          <button type="button" class="btn btn-primary" data-action="export-json">Télécharger la sauvegarde (.json)</button>
+          <h2 class="mt">Exporter pour Excel</h2>
+          <p class="card-sub">Tableau des articles avec bénéfice et délai de vente, lisible dans Excel ou Google Sheets.</p>
+          <button type="button" class="btn" data-action="export-csv">Exporter les articles (.csv)</button>
+        </div>
+        <div class="card">
+          <h2>Restaurer</h2>
+          <p class="card-sub">Importez un fichier de sauvegarde créé par cette application.</p>
+          <fieldset class="radio-row">
+            <legend class="sr-only">Mode d'import</legend>
+            <label><input type="radio" name="import-mode" value="fusion" checked> Fusionner avec mes données</label>
+            <label><input type="radio" name="import-mode" value="remplacer"> Tout remplacer</label>
+          </fieldset>
+          <label class="btn file-btn">
+            Choisir un fichier…
+            <input type="file" id="import-file" accept="application/json,.json">
+          </label>
+          <h2 class="mt">Zone sensible</h2>
+          <div class="row-gap">
+            <button type="button" class="btn" data-action="demo">Charger des exemples</button>
+            <button type="button" class="btn btn-danger" data-action="reset">Tout effacer</button>
+          </div>
+        </div>
+      </div>
+      <p class="list-summary" id="storage-info"></p>
+    </section>
+  </main>
+
+  <!-- ===================== FORMULAIRE ARTICLE ===================== -->
+  <dialog id="article-dialog" aria-labelledby="article-dialog-title">
+    <form id="article-form" method="dialog" novalidate>
+      <header class="dialog-head">
+        <h2 id="article-dialog-title">Nouvel article</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Fermer">✕</button>
+      </header>
+      <div class="dialog-body">
+        <input type="hidden" name="id">
+        <fieldset>
+          <legend>Article</legend>
+          <div class="form-grid">
+            <label class="span-2">Titre *
+              <input name="titre" required maxlength="200" placeholder="ex. Jean Levi's 501 brut">
+            </label>
+            <label>Marque
+              <input name="marque" maxlength="100" list="dl-marques">
+            </label>
+            <label>Catégorie
+              <input name="categorie" maxlength="100" list="dl-categories">
+            </label>
+            <label>Taille
+              <input name="taille" maxlength="40" placeholder="ex. M, 38, W32">
+            </label>
+            <label>État
+              <select name="etat">
+                <option value="">—</option>
+                <option>Neuf avec étiquette</option>
+                <option>Neuf sans étiquette</option>
+                <option>Très bon état</option>
+                <option>Bon état</option>
+                <option>Satisfaisant</option>
+              </select>
+            </label>
+            <label class="span-2">Statut
+              <select name="statut" id="statut-select"></select>
+            </label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Achat et mise en ligne</legend>
+          <div class="form-grid">
+            <label>Prix d'achat (€)
+              <input name="prixAchat" inputmode="decimal" placeholder="0 si c'est à vous">
+            </label>
+            <label>Date d'achat
+              <input name="dateAchat" type="date">
+            </label>
+            <label>Provenance
+              <input name="provenance" maxlength="100" list="dl-provenances">
+            </label>
+            <label>Prix affiché (€)
+              <input name="prixAffiche" inputmode="decimal">
+            </label>
+            <label>Mise en ligne
+              <input name="dateMiseEnLigne" type="date">
+            </label>
+            <label>Frais annexes (€)
+              <input name="frais" inputmode="decimal" placeholder="boost, emballage…">
+            </label>
+          </div>
+        </fieldset>
+        <fieldset id="vente-fieldset">
+          <legend>Vente</legend>
+          <div class="form-grid">
+            <label>Montant reçu (€)
+              <input name="prixVente" inputmode="decimal">
+            </label>
+            <label>Date de vente
+              <input name="dateVente" type="date">
+            </label>
+          </div>
+          <p class="hint">Sur Vinted, la protection acheteurs et le port sont payés par l'acheteur : indiquez le montant que vous recevez réellement.</p>
+        </fieldset>
+        <fieldset>
+          <legend>Divers</legend>
+          <div class="form-grid">
+            <label class="span-2">Lien de l'annonce
+              <input name="lien" type="url" placeholder="https://www.vinted.fr/items/…">
+            </label>
+            <label class="span-2">Notes
+              <textarea name="notes" rows="2" maxlength="2000"></textarea>
+            </label>
+          </div>
+        </fieldset>
+        <div class="preview" id="article-preview" aria-live="polite"></div>
+        <p class="form-error" id="article-error" role="alert"></p>
+      </div>
+      <footer class="dialog-foot">
+        <button type="button" class="btn" data-close>Annuler</button>
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- ===================== FORMULAIRE DÉPENSE ===================== -->
+  <dialog id="depense-dialog" aria-labelledby="depense-dialog-title">
+    <form id="depense-form" method="dialog" novalidate>
+      <header class="dialog-head">
+        <h2 id="depense-dialog-title">Nouvelle dépense</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Fermer">✕</button>
+      </header>
+      <div class="dialog-body">
+        <input type="hidden" name="id">
+        <div class="form-grid">
+          <label class="span-2">Libellé *
+            <input name="libelle" required maxlength="200" placeholder="ex. Lot de 50 enveloppes">
+          </label>
+          <label>Montant (€) *
+            <input name="montant" required inputmode="decimal">
+          </label>
+          <label>Date
+            <input name="date" type="date">
+          </label>
+          <label class="span-2">Catégorie
+            <input name="categorie" maxlength="100" list="dl-dep-categories">
+          </label>
+          <label class="span-2">Notes
+            <textarea name="notes" rows="2" maxlength="2000"></textarea>
+          </label>
+        </div>
+        <p class="form-error" id="depense-error" role="alert"></p>
+      </div>
+      <footer class="dialog-foot">
+        <button type="button" class="btn" data-close>Annuler</button>
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <datalist id="dl-categories"></datalist>
+  <datalist id="dl-marques"></datalist>
+  <datalist id="dl-provenances"></datalist>
+  <datalist id="dl-dep-categories"></datalist>
+
+  <div class="tooltip" id="tooltip" role="status" hidden></div>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden>
+    <span id="toast-text"></span>
+    <button type="button" class="btn btn-ghost" id="toast-action" hidden></button>
+  </div>
+
+  <script src="js/calc.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
