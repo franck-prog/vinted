@@ -208,7 +208,10 @@
     if (ui.view === 'dashboard') renderDashboard();
     if (ui.view === 'articles') renderArticles();
     if (ui.view === 'depenses') renderDepenses();
-    if (ui.view === 'donnees') renderDonnees();
+    if (ui.view === 'donnees') {
+      renderDonnees();
+      majInstallation();
+    }
   }
 
   function fillSelect(select, options, value) {
@@ -948,6 +951,7 @@
         'export-csv': exportCSV,
         demo: chargerExemples,
         reset: resetAll,
+        install: installer,
       };
       const fn = actions[btn.dataset.action];
       if (fn) fn();
@@ -1013,6 +1017,51 @@
         load();
         render();
       }
+    });
+  }
+
+  // ---------- Application installable (PWA) ----------
+  let installPrompt = null;
+  const estInstallee = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+
+  function majInstallation() {
+    const btn = $('#install-btn');
+    const hint = $('#install-hint');
+    if (!btn) return;
+    btn.hidden = !installPrompt;
+    if (estInstallee()) {
+      $('#install-text').textContent = 'Vous utilisez déjà Suivi Vinted en tant qu’application installée. 👍';
+      hint.textContent = '';
+    } else if (location.protocol === 'file:') {
+      hint.textContent = 'L’installation n’est pas possible quand le fichier est ouvert directement depuis l’ordinateur. Ouvrez l’application depuis son adresse en ligne (GitHub Pages) ou via « npm start ».';
+    } else if (installPrompt) {
+      hint.textContent = '';
+    } else {
+      hint.textContent = 'Si le bouton n’apparaît pas : dans Chrome ou Edge, ouvrez le menu ⋮ puis « Installer Suivi Vinted » (ou « Applications → Installer ce site en tant qu’application »). Sur Mac avec Safari : Fichier → « Ajouter au Dock ». Sur iPhone : Partager → « Sur l’écran d’accueil ».';
+    }
+  }
+
+  async function installer() {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    const choix = await installPrompt.userChoice.catch(() => null);
+    installPrompt = null;
+    majInstallation();
+    if (choix && choix.outcome === 'accepted') toast('Application installée');
+  }
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    installPrompt = e;
+    majInstallation();
+  });
+  window.addEventListener('appinstalled', () => {
+    installPrompt = null;
+    majInstallation();
+  });
+  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch((e) => console.warn('Service worker non enregistré', e));
     });
   }
 

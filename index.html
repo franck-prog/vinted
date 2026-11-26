@@ -5,7 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>Suivi Vinted</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231b64be'/%3E%3Cpath d='M9 19l4-4 3 3 7-8' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <meta name="theme-color" content="#1b64be">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -191,6 +194,12 @@
             <button type="button" class="btn btn-danger" data-action="reset">Tout effacer</button>
           </div>
         </div>
+      </div>
+      <div class="card" id="install-card">
+        <h2>Application de bureau</h2>
+        <p class="card-sub" id="install-text">Installez Suivi Vinted comme une application : elle aura sa propre fenêtre et son icône dans le menu Démarrer (ou le Dock), et fonctionnera sans connexion.</p>
+        <button type="button" class="btn btn-primary" data-action="install" id="install-btn" hidden>Installer l'application</button>
+        <p class="hint" id="install-hint"></p>
       </div>
       <p class="list-summary" id="storage-info"></p>
     </section>

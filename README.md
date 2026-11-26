@@ -9,6 +9,19 @@ Elle tourne entièrement dans le navigateur, sans compte, sans serveur et sans d
 - **Avec un petit serveur local** : `npm start`, puis ouvrir <http://localhost:8080>.
 - **En ligne** : activer GitHub Pages sur ce dépôt (Settings → Pages → branche `main`, dossier `/`). L'application est alors accessible depuis le téléphone.
 
+## Installer comme application de bureau
+
+L'application est une **PWA** : elle s'installe comme un vrai logiciel, avec son icône dans le menu Démarrer ou le Dock et sa propre fenêtre. Une fois installée, elle fonctionne sans connexion.
+
+1. Mettre l'application en ligne avec GitHub Pages (voir plus haut). C'est à faire une seule fois.
+2. Ouvrir l'adresse obtenue dans **Chrome** ou **Edge**, puis cliquer sur l'icône d'installation à droite de la barre d'adresse, ou sur le bouton **Installer l'application** de l'onglet *Données*.
+   - Sur Mac avec Safari : *Fichier → Ajouter au Dock*.
+   - Sur iPhone ou Android : *Partager → Sur l'écran d'accueil*.
+
+Les mises à jour du code sont récupérées automatiquement et s'appliquent au lancement suivant.
+
+> Les données sont propres à chaque adresse. Si vous avez commencé en ouvrant `index.html` directement, exportez une sauvegarde depuis l'onglet *Données*, puis importez-la dans l'application installée.
+
 ## Fonctionnalités
 
 **Articles**
@@ -59,6 +72,7 @@ index.html        Structure de la page
 css/style.css     Styles (thèmes clair et sombre, responsive)
 js/calc.js        Calculs purs (statistiques, séries, import/export), testés
 js/app.js         Interface : rendu, formulaires, graphiques SVG, stockage
+manifest.webmanifest, sw.js, icons/   Application installable et mode hors ligne
 tests/            Tests unitaires (node --test)
 ```
 
