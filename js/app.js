@@ -12,7 +12,7 @@
   const DEP_CATEGORIES = ['Emballages', 'Mise en avant / boost', 'Dressing en vitrine', 'Étiquettes / impression', 'Transport', 'Autre'];
 
   // ---------- État ----------
-  let state = { articles: [], depenses: [], settings: { theme: 'auto' } };
+  let state = { articles: [], depenses: [], supprimes: [], settings: { theme: 'auto' }, sync: { derniere: '' } };
   let storageOk = true;
   const ui = {
     view: 'dashboard',
@@ -94,6 +94,8 @@
       const clean = C.lireSauvegarde(data, uid);
       state.articles = clean.articles;
       state.depenses = clean.depenses;
+      state.supprimes = clean.supprimes;
+      if (data.sync && typeof data.sync.derniere === 'string') state.sync.derniere = data.sync.derniere;
       if (data.settings && typeof data.settings === 'object') {
         state.settings.theme = ['auto', 'light', 'dark'].includes(data.settings.theme) ? data.settings.theme : 'auto';
       }
@@ -114,6 +116,16 @@
   function commit() {
     save();
     render();
+    scheduleSync();
+  }
+  const maintenant = () => new Date().toISOString();
+  /** Mémorise une suppression pour la propager aux autres appareils. */
+  function marquerSupprime(kind, id) {
+    state.supprimes = state.supprimes.filter((t) => t.id !== id);
+    state.supprimes.push({ id, kind, modifieLe: maintenant() });
+  }
+  function annulerSuppression(id) {
+    state.supprimes = state.supprimes.filter((t) => t.id !== id);
   }
 
   // ---------- Toast ----------
@@ -210,8 +222,10 @@
     if (ui.view === 'depenses') renderDepenses();
     if (ui.view === 'donnees') {
       renderDonnees();
+      renderSyncCard();
       majInstallation();
     }
+    renderSyncIndicator();
   }
 
   function fillSelect(select, options, value) {
@@ -515,6 +529,7 @@
         el('th', null, el('span', { class: 'sr-only', text: 'Actions' })))),
       el('tbody', null, rows)));
 
+    hydraterPhotos(host);
     const vendus = list.filter(C.isVendu);
     const totalBenef = vendus.reduce((acc, a) => acc + C.benefice(a), 0);
     $('#articles-summary').textContent = `${plural(list.length, 'article affiché', 'articles affichés')}`
@@ -548,9 +563,15 @@
     else if (anc != null) delaiText = `depuis ${anc} j`;
 
     return el('tr', null,
-      el('td', { class: 'cell-main' },
-        el('div', { class: 'item-title' }, a.lien ? el('a', { href: a.lien, target: '_blank', rel: 'noopener noreferrer', text: a.titre }) : a.titre),
-        meta ? el('div', { class: 'item-meta', text: meta }) : null),
+      el('td', { class: 'cell-main' }, el('div', { class: 'item-cell' },
+        a.photos && a.photos.length
+          ? el('button', { type: 'button', class: 'thumb', title: 'Voir les photos', 'aria-label': `Photos de ${a.titre}`, onclick: () => openArticle(a.id) },
+            el('img', { alt: '', 'data-path': a.photos[0].thumb, loading: 'lazy' }),
+            a.photos.length > 1 ? el('span', { class: 'thumb-count', text: String(a.photos.length) }) : null)
+          : null,
+        el('div', null,
+          el('div', { class: 'item-title' }, a.lien ? el('a', { href: a.lien, target: '_blank', rel: 'noopener noreferrer', text: a.titre }) : a.titre),
+          meta ? el('div', { class: 'item-meta', text: meta }) : null))),
       el('td', null, statut),
       el('td', { class: 'num', 'data-label': 'Achat', text: a.prixAchat === '' ? '—' : fmt(a.prixAchat) }),
       venteCell,
@@ -584,7 +605,7 @@
     const a = state.articles.find((x) => x.id === id);
     if (!a) return;
     openArticle(null, {
-      ...a, id: '', titre: `${a.titre} (copie)`, statut: 'stock', prixVente: '', dateVente: '', dateMiseEnLigne: '', lien: '',
+      ...a, id: '', titre: `${a.titre} (copie)`, statut: 'stock', prixVente: '', dateVente: '', dateMiseEnLigne: '', lien: '', photos: [],
     });
   }
 
@@ -592,14 +613,21 @@
     const idx = state.articles.findIndex((x) => x.id === id);
     if (idx < 0) return;
     const [removed] = state.articles.splice(idx, 1);
+    marquerSupprime('article', removed.id);
     commit();
     toast(`« ${removed.titre} » supprimé`, {
       label: 'Annuler',
       run: () => {
+        annulerSuppression(removed.id);
+        removed.modifieLe = maintenant();
         state.articles.splice(Math.min(idx, state.articles.length), 0, removed);
         commit();
       },
     });
+    // Les photos sont effacées du serveur une fois le délai d'annulation passé.
+    setTimeout(() => {
+      if (!state.articles.some((a) => a.id === removed.id)) supprimerFichiersPhotos(removed.photos);
+    }, 9000);
   }
 
   // ---------- Formulaire article ----------
@@ -622,6 +650,8 @@
     }
     articleForm.elements.id.value = a ? a.id : '';
     $('#article-error').textContent = '';
+    formPhotos = { list: [...(data.photos || [])], ajoutees: [], retirees: [], envois: 0, enregistre: false };
+    renderGallery();
     updateArticleForm();
     articleDialog.showModal();
     if (!a) setTimeout(() => articleForm.elements.titre.focus(), 30);
@@ -680,19 +710,23 @@
     if (d.dateVente && (d.dateMiseEnLigne || d.dateAchat) && d.dateVente < (d.dateMiseEnLigne || d.dateAchat)) {
       fail('dateVente', 'La date de vente est antérieure à la mise en ligne ou à l\'achat.');
     }
+    if (formPhotos.envois > 0) errors.push('Patientez, des photos sont en cours d’envoi.');
     if (errors.length) {
       $('#article-error').textContent = [...new Set(errors)].join(' ');
       return;
     }
 
     const id = f.id.value;
-    const now = new Date().toISOString();
+    const now = maintenant();
+    d.photos = formPhotos.list.slice();
     if (id) {
       const a = state.articles.find((x) => x.id === id);
       Object.assign(a, d, { modifieLe: now });
     } else {
       state.articles.push(C.normaliserArticle({ ...d, id: uid(), creeLe: now, modifieLe: now }, uid));
     }
+    formPhotos.enregistre = true;
+    supprimerFichiersPhotos(formPhotos.retirees);
     articleDialog.close();
     commit();
     toast(id ? 'Article mis à jour' : 'Article ajouté');
@@ -770,6 +804,7 @@
       notes: f.notes.value.trim(),
     };
     const id = f.id.value;
+    data.modifieLe = maintenant();
     if (id) Object.assign(state.depenses.find((x) => x.id === id), data);
     else state.depenses.push({ id: uid(), ...data });
     depenseDialog.close();
@@ -781,10 +816,13 @@
     const idx = state.depenses.findIndex((x) => x.id === id);
     if (idx < 0) return;
     const [removed] = state.depenses.splice(idx, 1);
+    marquerSupprime('depense', removed.id);
     commit();
     toast(`« ${removed.libelle} » supprimée`, {
       label: 'Annuler',
       run: () => {
+        annulerSuppression(removed.id);
+        removed.modifieLe = maintenant();
         state.depenses.splice(Math.min(idx, state.depenses.length), 0, removed);
         commit();
       },
@@ -830,8 +868,14 @@
     reader.onload = () => {
       try {
         const data = C.lireSauvegarde(JSON.parse(String(reader.result)), uid);
+        const now = maintenant();
+        for (const x of [...data.articles, ...data.depenses]) x.modifieLe = now;
+        const ids = new Set([...data.articles, ...data.depenses].map((x) => x.id));
         if (mode === 'remplacer') {
-          if (!confirm(`Remplacer toutes vos données par ${plural(data.articles.length, 'article', 'articles')} et ${plural(data.depenses.length, 'dépense', 'dépenses')} ?`)) return;
+          if (!confirm(`Remplacer toutes vos données par ${plural(data.articles.length, 'article', 'articles')} et ${plural(data.depenses.length, 'dépense', 'dépenses')} ?`
+            + (syncActive() ? '\n\nLe remplacement sera aussi appliqué à vos autres appareils.' : ''))) return;
+          for (const a of state.articles) if (!ids.has(a.id)) marquerSupprime('article', a.id);
+          for (const d of state.depenses) if (!ids.has(d.id)) marquerSupprime('depense', d.id);
           state.articles = data.articles;
           state.depenses = data.depenses;
         } else {
@@ -843,6 +887,7 @@
           state.articles = merge(state.articles, data.articles);
           state.depenses = merge(state.depenses, data.depenses);
         }
+        state.supprimes = state.supprimes.filter((t) => !ids.has(t.id));
         commit();
         toast(`Import réussi : ${plural(data.articles.length, 'article', 'articles')}, ${plural(data.depenses.length, 'dépense', 'dépenses')}`);
       } catch (err) {
@@ -857,7 +902,11 @@
       toast('Il n’y a rien à effacer.');
       return;
     }
-    if (!confirm('Effacer définitivement tous les articles et toutes les dépenses de ce navigateur ?\n\nConseil : téléchargez une sauvegarde avant.')) return;
+    const ailleurs = syncActive() ? '\n\nAttention : la synchronisation est active, les données seront aussi effacées sur vos autres appareils.' : '';
+    if (!confirm(`Effacer définitivement tous les articles et toutes les dépenses ?${ailleurs}\n\nConseil : téléchargez une sauvegarde avant.`)) return;
+    for (const a of state.articles) marquerSupprime('article', a.id);
+    for (const d of state.depenses) marquerSupprime('depense', d.id);
+    supprimerFichiersPhotos(state.articles.flatMap((a) => a.photos || []));
     state.articles = [];
     state.depenses = [];
     commit();
@@ -866,6 +915,10 @@
 
   // ---------- Données d'exemple ----------
   function chargerExemples() {
+    if (syncActive()) {
+      toast('Déconnectez la synchronisation avant de charger des exemples, pour ne pas les envoyer sur vos autres appareils.');
+      return;
+    }
     if ((state.articles.length || state.depenses.length)
       && !confirm('Remplacer vos données actuelles par des exemples ?\n\nConseil : téléchargez une sauvegarde avant.')) return;
     let seed = 7;
@@ -905,7 +958,7 @@
       else if (r < 0.95) statut = 'en_ligne';
       else statut = 'annule';
       const a = {
-        id: uid(), titre: m[0], marque: m[1], categorie: m[2], taille: m[3], etat: pick(etats), statut,
+        id: `demo-${uid()}`, titre: m[0], marque: m[1], categorie: m[2], taille: m[3], etat: pick(etats), statut,
         prixAchat: achat, dateAchat: dateIl(achatJ), provenance: achat === 0 ? 'Mon dressing' : pick(['Friperie', 'Vide-grenier', 'Emmaüs / ressourcerie', 'Vinted']),
         prixAffiche: affiche, dateMiseEnLigne: statut === 'stock' ? '' : dateIl(ligneJ), prixVente: '', dateVente: '',
         frais: rnd() < 0.25 ? pick([0.95, 1.5, 2.45]) : '', lien: '', notes: '', creeLe: new Date().toISOString(), modifieLe: '',
@@ -918,13 +971,14 @@
       return a;
     });
     const depenses = [
-      { id: uid(), date: dateIl(200), libelle: "Lot de 50 enveloppes d'expédition", categorie: 'Emballages', montant: 12.9, notes: '' },
-      { id: uid(), date: dateIl(120), libelle: 'Dressing en vitrine (7 jours)', categorie: 'Dressing en vitrine', montant: 6.95, notes: '' },
-      { id: uid(), date: dateIl(45), libelle: 'Rouleau de papier kraft', categorie: 'Emballages', montant: 7.5, notes: '' },
-      { id: uid(), date: dateIl(10), libelle: 'Étiquettes adhésives', categorie: 'Étiquettes / impression', montant: 4.2, notes: '' },
+      { id: `demo-${uid()}`, date: dateIl(200), libelle: "Lot de 50 enveloppes d'expédition", categorie: 'Emballages', montant: 12.9, notes: '' },
+      { id: `demo-${uid()}`, date: dateIl(120), libelle: 'Dressing en vitrine (7 jours)', categorie: 'Dressing en vitrine', montant: 6.95, notes: '' },
+      { id: `demo-${uid()}`, date: dateIl(45), libelle: 'Rouleau de papier kraft', categorie: 'Emballages', montant: 7.5, notes: '' },
+      { id: `demo-${uid()}`, date: dateIl(10), libelle: 'Étiquettes adhésives', categorie: 'Étiquettes / impression', montant: 4.2, notes: '' },
     ];
     state.articles = articles;
     state.depenses = depenses;
+    state.supprimes = [];
     commit();
     toast('Exemples chargés. Vous pourrez tout effacer depuis l’onglet Données.');
   }
@@ -988,6 +1042,16 @@
       updateArticleForm();
     });
     depenseForm.addEventListener('submit', submitDepense);
+    $('#photo-input').addEventListener('change', (e) => {
+      const files = e.target.files ? [...e.target.files] : [];
+      e.target.value = '';
+      if (files.length) ajouterPhotos(files);
+    });
+    articleDialog.addEventListener('close', () => {
+      // Formulaire abandonné : on efface les photos envoyées entre-temps.
+      if (!formPhotos.enregistre) supprimerFichiersPhotos(formPhotos.ajoutees);
+      formPhotos.ajoutees = [];
+    });
 
     // Clic sur le fond : fermer le dialogue
     for (const dlg of [articleDialog, depenseDialog]) {
@@ -1018,6 +1082,342 @@
         render();
       }
     });
+  }
+
+  // ================= SYNCHRONISATION =================
+  const S = window.VintedSync || { enabled: false, user: () => null };
+  const sync = { statut: 'off', message: '', enCours: false, relancer: false, timer: null };
+
+  function syncActive() {
+    return Boolean(S.enabled && S.user());
+  }
+
+  function setSyncStatus(statut, message = '') {
+    sync.statut = statut;
+    sync.message = message;
+    renderSyncIndicator();
+    if (ui.view === 'donnees') renderSyncCard();
+  }
+
+  function scheduleSync(delai = 1500) {
+    if (!syncActive()) return;
+    clearTimeout(sync.timer);
+    sync.timer = setTimeout(syncNow, delai);
+  }
+
+  async function syncNow() {
+    if (!syncActive()) return;
+    if (!navigator.onLine) {
+      setSyncStatus('offline');
+      return;
+    }
+    if (sync.enCours) {
+      sync.relancer = true;
+      return;
+    }
+    sync.enCours = true;
+    setSyncStatus('syncing');
+    try {
+      const remote = await S.pull();
+      // La fusion est synchrone : aucune modification locale ne peut s'intercaler.
+      const r = C.fusionnerSync(state, remote, uid);
+      state.articles = r.articles;
+      state.depenses = r.depenses;
+      state.supprimes = r.supprimes;
+      state.sync.derniere = maintenant();
+      save();
+      if (r.recus) render();
+      if (r.aPousser.length) await S.push(r.aPousser);
+      setSyncStatus('ok');
+    } catch (e) {
+      console.warn('Synchronisation', e);
+      setSyncStatus(navigator.onLine ? 'error' : 'offline', e.message);
+    } finally {
+      sync.enCours = false;
+      if (sync.relancer) {
+        sync.relancer = false;
+        scheduleSync(300);
+      }
+    }
+  }
+
+  async function demarrerSync() {
+    if (!S.enabled) return;
+    try {
+      const user = await S.init((u) => {
+        photoUrls.clear();
+        if (u) syncNow();
+        else setSyncStatus('off');
+        render();
+      });
+      if (user) {
+        render();
+        syncNow();
+      } else setSyncStatus('off');
+    } catch (e) {
+      setSyncStatus('error', e.message);
+    }
+    window.addEventListener('online', () => scheduleSync(0));
+    window.addEventListener('offline', () => syncActive() && setSyncStatus('offline'));
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') scheduleSync(0);
+    });
+    setInterval(() => {
+      if (document.visibilityState === 'visible') scheduleSync(0);
+    }, 120000);
+  }
+
+  async function connexion(email, password) {
+    await S.signIn(email, password);
+    // Les données d'exemple ne doivent pas partir sur le serveur.
+    const avant = state.articles.length + state.depenses.length;
+    state.articles = state.articles.filter((a) => !a.id.startsWith('demo-'));
+    state.depenses = state.depenses.filter((d) => !d.id.startsWith('demo-'));
+    const retires = avant - state.articles.length - state.depenses.length;
+    save();
+    toast(retires ? 'Connecté. Les exemples ont été retirés de cet appareil.' : 'Connecté');
+    await syncNow();
+    render();
+  }
+
+  async function deconnexion() {
+    if (!confirm('Se déconnecter ? Vos données restent sur cet appareil mais ne seront plus synchronisées.')) return;
+    await S.signOut();
+    photoUrls.clear();
+    setSyncStatus('off');
+    render();
+  }
+
+  function heure(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const memeJour = d.toDateString() === new Date().toDateString();
+    return memeJour
+      ? `à ${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
+      : `le ${d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} à ${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
+  }
+
+  function libelleStatut() {
+    if (!S.enabled) return { niveau: 'off', texte: 'Synchronisation non configurée' };
+    if (!S.user()) return { niveau: 'off', texte: 'Synchronisation désactivée (non connecté)' };
+    switch (sync.statut) {
+      case 'syncing': return { niveau: 'busy', texte: 'Synchronisation en cours…' };
+      case 'offline': return { niveau: 'warn', texte: 'Hors ligne : vos changements seront envoyés au retour de la connexion' };
+      case 'error': return { niveau: 'error', texte: `Échec de la synchronisation : ${sync.message}` };
+      default: return { niveau: 'ok', texte: state.sync.derniere ? `Synchronisé ${heure(state.sync.derniere)}` : 'Connecté' };
+    }
+  }
+
+  function renderSyncIndicator() {
+    const btn = $('#sync-indicator');
+    if (!btn) return;
+    btn.hidden = !S.enabled;
+    if (!S.enabled) return;
+    const st = libelleStatut();
+    btn.dataset.niveau = st.niveau;
+    btn.title = st.texte;
+    $('#sync-label').textContent = st.texte;
+  }
+
+  function renderSyncCard() {
+    const host = $('#sync-card');
+    if (!host) return;
+    const titre = el('h2', { text: 'Synchronisation entre appareils' });
+    if (!S.enabled) {
+      host.replaceChildren(titre,
+        el('p', { class: 'card-sub', text: 'Pas encore configurée. Une fois activée, vos articles, dépenses et photos seront identiques sur votre téléphone et votre ordinateur.' }),
+        el('p', { class: 'hint', text: 'La marche à suivre est dans docs/synchronisation.md (dépôt GitHub).' }));
+      return;
+    }
+    const user = S.user();
+    if (!user) {
+      const email = el('input', { type: 'email', name: 'email', autocomplete: 'username', required: true, placeholder: 'vous@exemple.fr' });
+      const mdp = el('input', { type: 'password', name: 'password', autocomplete: 'current-password', required: true });
+      const err = el('p', { class: 'form-error', role: 'alert' });
+      const bouton = el('button', { type: 'submit', class: 'btn btn-primary', text: 'Se connecter' });
+      const form = el('form', { class: 'sync-form', novalidate: true },
+        el('label', null, 'E-mail', email),
+        el('label', null, 'Mot de passe', mdp),
+        bouton, err);
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        err.textContent = '';
+        if (!email.value.trim() || !mdp.value) {
+          err.textContent = 'Indiquez votre e-mail et votre mot de passe.';
+          return;
+        }
+        bouton.disabled = true;
+        bouton.textContent = 'Connexion…';
+        try {
+          await connexion(email.value.trim(), mdp.value);
+        } catch (ex) {
+          err.textContent = ex.message;
+          bouton.disabled = false;
+          bouton.textContent = 'Se connecter';
+        }
+      });
+      host.replaceChildren(titre,
+        el('p', { class: 'card-sub', text: 'Connectez-vous avec le même compte sur chaque appareil : vos données seront fusionnées puis tenues à jour automatiquement.' }),
+        form);
+      return;
+    }
+    const st = libelleStatut();
+    host.replaceChildren(titre,
+      el('p', { class: 'card-sub' }, 'Connecté : ', el('strong', { text: user.email || '' })),
+      el('p', { class: 'sync-state', dataset: { niveau: st.niveau } }, el('span', { class: 'dot' }), el('span', { text: st.texte })),
+      el('div', { class: 'row-gap' },
+        el('button', { type: 'button', class: 'btn btn-primary', onclick: () => syncNow(), disabled: sync.enCours }, 'Synchroniser maintenant'),
+        el('button', { type: 'button', class: 'btn', onclick: deconnexion }, 'Se déconnecter')));
+  }
+
+  // ================= PHOTOS =================
+  let formPhotos = { list: [], ajoutees: [], retirees: [], envois: 0, enregistre: false };
+  const photoUrls = new Map(); // chemin -> { url, expire }
+
+  async function urlsPhotos(paths) {
+    const now = Date.now();
+    const manquants = paths.filter((p) => !(photoUrls.has(p) && photoUrls.get(p).expire > now));
+    if (manquants.length && syncActive() && navigator.onLine) {
+      const res = await S.signedUrls([...new Set(manquants)]);
+      for (const [p, url] of Object.entries(res)) photoUrls.set(p, { url, expire: now + 50 * 60 * 1000 });
+    }
+    const out = {};
+    for (const p of paths) if (photoUrls.has(p)) out[p] = photoUrls.get(p).url;
+    return out;
+  }
+
+  function hydraterPhotos(root) {
+    const imgs = [...root.querySelectorAll('img[data-path]')].filter((i) => !i.getAttribute('src'));
+    if (!imgs.length || !syncActive()) return;
+    urlsPhotos(imgs.map((i) => i.dataset.path))
+      .then((urls) => {
+        for (const img of imgs) if (urls[img.dataset.path]) img.src = urls[img.dataset.path];
+      })
+      .catch((e) => console.warn('Photos', e));
+  }
+
+  function supprimerFichiersPhotos(photos) {
+    if (!photos || !photos.length || !syncActive()) return;
+    S.remove(photos.flatMap((p) => [p.path, p.thumb])).catch((e) => console.warn('Suppression des photos', e));
+  }
+
+  async function chargerImage(file) {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      return { img, liberer: () => URL.revokeObjectURL(url) };
+    } catch (e) {
+      URL.revokeObjectURL(url);
+      throw new Error(`Format d'image non pris en charge (${file.name || 'photo'}).`);
+    }
+  }
+
+  function versJpeg(img, max, qualite) {
+    const w = img.naturalWidth;
+    const h = img.naturalHeight;
+    const k = Math.min(1, max / Math.max(w, h));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(w * k));
+    canvas.height = Math.max(1, Math.round(h * k));
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Conversion impossible'))), 'image/jpeg', qualite));
+  }
+
+  async function ajouterPhotos(files) {
+    if (!syncActive()) {
+      toast('Connectez la synchronisation (onglet Données) pour ajouter des photos.');
+      return;
+    }
+    if (!navigator.onLine) {
+      toast('Connexion internet nécessaire pour envoyer des photos.');
+      return;
+    }
+    const form = formPhotos;
+    const place = 20 - form.list.length - form.envois;
+    const liste = [...files].slice(0, Math.max(0, place));
+    if (files.length > liste.length) toast('20 photos maximum par article.');
+    const userId = S.user().id;
+    for (const file of liste) {
+      form.envois += 1;
+      renderGallery();
+      let photo = null;
+      try {
+        const { img, liberer } = await chargerImage(file);
+        let grande;
+        let vignette;
+        try {
+          grande = await versJpeg(img, 1600, 0.82);
+          vignette = await versJpeg(img, 320, 0.75);
+        } finally {
+          liberer();
+        }
+        const id = uid();
+        photo = { id, path: `${userId}/${id}.jpg`, thumb: `${userId}/${id}_t.jpg` };
+        await S.upload(photo.thumb, vignette);
+        await S.upload(photo.path, grande);
+        if (formPhotos === form && articleDialog.open) {
+          form.list.push(photo);
+          form.ajoutees.push(photo);
+        } else {
+          supprimerFichiersPhotos([photo]); // formulaire fermé entre-temps
+        }
+      } catch (e) {
+        if (photo) supprimerFichiersPhotos([photo]);
+        toast(e.message || 'Envoi de la photo impossible');
+      } finally {
+        form.envois -= 1;
+        if (formPhotos === form) renderGallery();
+      }
+    }
+  }
+
+  function retirerPhoto(id) {
+    const i = formPhotos.list.findIndex((p) => p.id === id);
+    if (i < 0) return;
+    const [p] = formPhotos.list.splice(i, 1);
+    const ajout = formPhotos.ajoutees.findIndex((x) => x.id === id);
+    if (ajout >= 0) {
+      formPhotos.ajoutees.splice(ajout, 1);
+      supprimerFichiersPhotos([p]);
+    } else formPhotos.retirees.push(p);
+    renderGallery();
+  }
+
+  async function ouvrirPhoto(p) {
+    const fenetre = window.open('', '_blank');
+    try {
+      const urls = await urlsPhotos([p.path]);
+      if (urls[p.path] && fenetre) fenetre.location = urls[p.path];
+      else if (fenetre) fenetre.close();
+    } catch (e) {
+      if (fenetre) fenetre.close();
+      toast(e.message);
+    }
+  }
+
+  function renderGallery() {
+    const host = $('#photo-gallery');
+    if (!host) return;
+    const items = formPhotos.list.map((p) => el('div', { class: 'photo' },
+      el('button', { type: 'button', class: 'photo-open', title: 'Agrandir', 'aria-label': 'Agrandir la photo', onclick: () => ouvrirPhoto(p) },
+        el('img', { alt: '', 'data-path': p.thumb })),
+      el('button', { type: 'button', class: 'photo-del', title: 'Retirer', 'aria-label': 'Retirer la photo', onclick: () => retirerPhoto(p.id) }, '✕')));
+    for (let i = 0; i < formPhotos.envois; i++) items.push(el('div', { class: 'photo loading', text: 'Envoi…' }));
+    host.replaceChildren(...items);
+    hydraterPhotos(host);
+    const actif = syncActive();
+    $('#photo-add').classList.toggle('disabled', !actif);
+    $('#photo-input').disabled = !actif;
+    $('#photo-hint').textContent = actif
+      ? 'Depuis la galerie, l’appareil photo ou Google Drive. Les photos sont réduites puis stockées avec votre compte.'
+      : S.enabled
+        ? 'Connectez la synchronisation (onglet Données) pour ajouter des photos.'
+        : 'Les photos nécessitent la synchronisation (voir onglet Données).';
   }
 
   // ---------- Application installable (PWA) ----------
@@ -1069,6 +1469,7 @@
   load();
   applyTheme();
   bind();
+  demarrerSync();
   const initial = (location.hash || '').slice(1);
   setView(['dashboard', 'articles', 'depenses', 'donnees'].includes(initial) ? initial : 'dashboard');
 })();

@@ -243,9 +243,20 @@
       frais: montantOuVide(raw.frais),
       lien: /^https?:\/\//i.test(texte(raw.lien)) ? texte(raw.lien, 500) : '',
       notes: texte(raw.notes, 2000),
+      photos: normaliserPhotos(raw.photos),
       creeLe: texte(raw.creeLe, 40),
       modifieLe: texte(raw.modifieLe, 40),
     };
+  }
+
+  const CHEMIN_PHOTO = /^[A-Za-z0-9-]{1,64}\/[A-Za-z0-9_-]{1,80}\.jpg$/;
+
+  function normaliserPhotos(list) {
+    if (!Array.isArray(list)) return [];
+    return list
+      .filter((p) => p && typeof p === 'object' && CHEMIN_PHOTO.test(p.path) && CHEMIN_PHOTO.test(p.thumb))
+      .slice(0, 20)
+      .map((p) => ({ id: texte(p.id, 80), path: p.path, thumb: p.thumb }));
   }
 
   function normaliserDepense(raw, genId) {
@@ -259,6 +270,7 @@
       categorie: texte(raw.categorie, 100),
       montant: montantOuVide(raw.montant) || 0,
       notes: texte(raw.notes, 2000),
+      modifieLe: texte(raw.modifieLe, 40),
     };
   }
 
@@ -270,7 +282,104 @@
     return {
       articles: data.articles.map((a) => normaliserArticle(a, genId)),
       depenses: Array.isArray(data.depenses) ? data.depenses.map((d) => normaliserDepense(d, genId)) : [],
+      supprimes: normaliserSupprimes(data.supprimes),
     };
+  }
+
+  // ---------- Synchronisation entre appareils ----------
+  // Chaque article / dépense est un enregistrement daté (modifieLe). Une suppression laisse
+  // une « pierre tombale » datée. Entre deux versions d'un même enregistrement, la plus
+  // récente gagne (local ou serveur).
+
+  const KINDS = new Set(['article', 'depense']);
+
+  function normaliserSupprimes(list) {
+    if (!Array.isArray(list)) return [];
+    return list
+      .filter((t) => t && typeof t.id === 'string' && t.id && KINDS.has(t.kind))
+      .map((t) => ({ id: t.id.slice(0, 80), kind: t.kind, modifieLe: texte(t.modifieLe, 40) }));
+  }
+
+  function temps(iso) {
+    const t = Date.parse(iso || '');
+    return Number.isFinite(t) ? t : 0;
+  }
+
+  function isoOuZero(iso) {
+    const t = temps(iso);
+    return new Date(t).toISOString();
+  }
+
+  /**
+   * Fusionne l'état local avec les lignes du serveur.
+   * local  : { articles, depenses, supprimes }
+   * remote : [{ id, kind, data, updated_at, deleted }]
+   * Renvoie le nouvel état local, les lignes à envoyer au serveur et le nombre de changements reçus.
+   */
+  function fusionnerSync(local, remote, genId) {
+    const locaux = new Map();
+    for (const a of local.articles) locaux.set(a.id, { kind: 'article', data: a, t: temps(a.modifieLe), deleted: false });
+    for (const d of local.depenses) locaux.set(d.id, { kind: 'depense', data: d, t: temps(d.modifieLe), deleted: false });
+    for (const s of local.supprimes || []) {
+      const cur = locaux.get(s.id);
+      if (!cur || temps(s.modifieLe) >= cur.t) locaux.set(s.id, { kind: s.kind, data: null, t: temps(s.modifieLe), deleted: true });
+    }
+    const distants = new Map();
+    for (const r of remote || []) {
+      if (!r || typeof r.id !== 'string' || !KINDS.has(r.kind)) continue;
+      distants.set(r.id, { kind: r.kind, data: r.data, t: temps(r.updated_at), deleted: !!r.deleted });
+    }
+
+    const resultat = new Map();
+    const aPousser = [];
+    let recus = 0;
+    const ids = new Set([...locaux.keys(), ...distants.keys()]);
+    for (const id of ids) {
+      const L = locaux.get(id);
+      const R = distants.get(id);
+      let gagnant = L;
+      if (R && (!L || R.t > L.t)) {
+        let data = null;
+        if (!R.deleted) {
+          try {
+            data = R.kind === 'article' ? normaliserArticle({ ...R.data, id }, genId) : normaliserDepense({ ...R.data, id }, genId);
+          } catch (e) {
+            continue; // ligne distante illisible : on l'ignore
+          }
+          data.modifieLe = new Date(R.t).toISOString();
+        }
+        gagnant = { kind: R.kind, data, t: R.t, deleted: R.deleted };
+        const etaitIdentique = L && L.deleted === R.deleted && L.deleted;
+        if (!etaitIdentique) recus += 1;
+      } else if (L && (!R || L.t > R.t)) {
+        aPousser.push({
+          id,
+          kind: L.kind,
+          data: L.deleted ? {} : L.data,
+          updated_at: isoOuZero(L.deleted ? local.supprimes.find((s) => s.id === id).modifieLe : L.data.modifieLe),
+          deleted: L.deleted,
+        });
+      }
+      resultat.set(id, gagnant);
+    }
+
+    // On garde l'ordre local, puis on ajoute les nouveautés venues du serveur.
+    const ordre = [...local.articles.map((a) => a.id), ...local.depenses.map((d) => d.id)];
+    for (const id of resultat.keys()) if (!ordre.includes(id)) ordre.push(id);
+    const articles = [];
+    const depenses = [];
+    const supprimes = [];
+    const vus = new Set();
+    for (const id of ordre) {
+      if (vus.has(id)) continue;
+      vus.add(id);
+      const g = resultat.get(id);
+      if (!g) continue;
+      if (g.deleted) supprimes.push({ id, kind: g.kind, modifieLe: new Date(g.t).toISOString() });
+      else if (g.kind === 'article') articles.push(g.data);
+      else depenses.push(g.data);
+    }
+    return { articles, depenses, supprimes, aPousser, recus };
   }
 
   function labelStatut(id) {
@@ -325,6 +434,8 @@
     normaliserArticle,
     normaliserDepense,
     lireSauvegarde,
+    normaliserSupprimes,
+    fusionnerSync,
     labelStatut,
     articlesCSV,
   };

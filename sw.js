@@ -1,13 +1,16 @@
 /* Service worker : permet d'utiliser l'application hors ligne une fois installée.
  * Stratégie : on sert la version en cache tout de suite, puis on la met à jour
  * en arrière-plan. La nouvelle version s'affiche au lancement suivant. */
-const CACHE = 'suivi-vinted-v1';
+const CACHE = 'suivi-vinted-v2';
 const FICHIERS = [
   './',
   './index.html',
   './css/style.css',
+  './js/config.js',
   './js/calc.js',
+  './js/sync.js',
   './js/app.js',
+  './vendor/supabase-2.119.0.js',
   './manifest.webmanifest',
   './icons/icon.svg',
   './icons/icon-192.png',

@@ -41,6 +41,11 @@ Les mises à jour du code sont récupérées automatiquement et s'appliquent au 
 - Bénéfice par catégorie.
 - Jauges **DAC7** : au-delà de 30 ventes ou de 2 000 € sur une année civile, Vinted transmet les données de vente à l'administration fiscale.
 
+**Synchronisation et photos** (facultatif)
+- Mêmes données sur le téléphone et l'ordinateur, avec un compte e-mail et mot de passe (via Supabase, gratuit). Mise en place : voir [docs/synchronisation.md](docs/synchronisation.md).
+- Les données restent utilisables hors ligne : les changements partent au retour de la connexion, et la modification la plus récente l'emporte.
+- Photos des articles (galerie, appareil photo ou Google Drive) : réduites puis stockées de façon privée.
+
 **Dépenses générales**
 - Frais qui ne concernent pas un article précis (emballages, dressing en vitrine, étiquettes…), déduits du bénéfice net.
 
@@ -63,7 +68,7 @@ Les mises à jour du code sont récupérées automatiquement et s'appliquent au 
 Seuls les statuts *Vendu*, *Expédié* et *Finalisé* comptent comme ventes. La période d'une vente est déterminée par sa date de vente.
 Sur Vinted, la protection acheteurs et les frais de port sont payés par l'acheteur. Saisissez donc comme montant reçu ce que vous touchez réellement.
 
-> ⚠️ Les données sont enregistrées dans le stockage local du navigateur (`localStorage`). Elles ne sont pas synchronisées entre appareils et peuvent être perdues si vous videz les données du navigateur. Pensez à télécharger une sauvegarde régulièrement (onglet **Données**).
+> ⚠️ Sans synchronisation, les données ne sont enregistrées que dans le navigateur (`localStorage`) : elles restent sur cet appareil et peuvent être perdues si vous videz les données du navigateur. Pensez à télécharger une sauvegarde régulièrement (onglet **Données**).
 
 ## Structure
 
@@ -71,7 +76,11 @@ Sur Vinted, la protection acheteurs et les frais de port sont payés par l'achet
 index.html        Structure de la page
 css/style.css     Styles (thèmes clair et sombre, responsive)
 js/calc.js        Calculs purs (statistiques, séries, import/export), testés
-js/app.js         Interface : rendu, formulaires, graphiques SVG, stockage
+js/app.js         Interface : rendu, formulaires, graphiques SVG, stockage, synchronisation, photos
+js/sync.js        Accès à Supabase (connexion, données, photos)
+js/config.js      Adresse et clé publique du projet Supabase
+supabase/         Script SQL de création de la base
+vendor/           Bibliothèque supabase-js (MIT), incluse pour le fonctionnement hors ligne
 manifest.webmanifest, sw.js, icons/   Application installable et mode hors ligne
 tests/            Tests unitaires (node --test)
 ```

@@ -26,6 +26,11 @@
         <button type="button" class="tab" data-view="depenses">Dépenses</button>
         <button type="button" class="tab" data-view="donnees">Données</button>
       </nav>
+      <button type="button" class="icon-btn sync-btn" id="sync-indicator" data-goto="donnees" hidden>
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 18 9.5a4 4 0 0 1-.5 8.5z"/></svg>
+        <span class="sync-dot" aria-hidden="true"></span>
+        <span class="sr-only" id="sync-label"></span>
+      </button>
       <button type="button" class="icon-btn" id="theme-toggle" title="Thème">
         <span aria-hidden="true" id="theme-icon"></span>
         <span class="sr-only" id="theme-label">Thème automatique</span>
@@ -166,7 +171,8 @@
       <div class="view-head">
         <h1 id="h-donnees">Données</h1>
       </div>
-      <p class="intro">Vos données restent dans ce navigateur, sur cet appareil. Pensez à faire une sauvegarde régulièrement, et pour passer d'un appareil à l'autre, exportez puis importez le fichier de sauvegarde.</p>
+      <p class="intro">Vos données sont enregistrées sur cet appareil. Activez la synchronisation pour les retrouver sur votre téléphone et votre ordinateur, et faites de temps en temps une sauvegarde.</p>
+      <div class="card" id="sync-card"></div>
       <div class="grid-2">
         <div class="card">
           <h2>Sauvegarder</h2>
@@ -280,6 +286,15 @@
           <p class="hint">Sur Vinted, la protection acheteurs et le port sont payés par l'acheteur : indiquez le montant que vous recevez réellement.</p>
         </fieldset>
         <fieldset>
+          <legend>Photos</legend>
+          <div class="photo-gallery" id="photo-gallery"></div>
+          <label class="btn btn-sm file-btn" id="photo-add">
+            + Ajouter des photos
+            <input type="file" id="photo-input" accept="image/*" multiple>
+          </label>
+          <p class="hint" id="photo-hint"></p>
+        </fieldset>
+        <fieldset>
           <legend>Divers</legend>
           <div class="form-grid">
             <label class="span-2">Lien de l'annonce
@@ -346,7 +361,10 @@
     <button type="button" class="btn btn-ghost" id="toast-action" hidden></button>
   </div>
 
+  <script src="vendor/supabase-2.119.0.js"></script>
+  <script src="js/config.js"></script>
   <script src="js/calc.js"></script>
+  <script src="js/sync.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
